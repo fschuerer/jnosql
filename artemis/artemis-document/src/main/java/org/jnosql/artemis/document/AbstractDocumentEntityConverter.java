@@ -14,28 +14,22 @@
  */
 package org.jnosql.artemis.document;
 
-import jakarta.nosql.document.Document;
-import jakarta.nosql.document.DocumentEntity;
-import jakarta.nosql.mapping.Converters;
-import jakarta.nosql.mapping.document.DocumentEntityConverter;
-import jakarta.nosql.mapping.reflection.ClassMapping;
-import jakarta.nosql.mapping.reflection.ClassMappings;
-import jakarta.nosql.mapping.reflection.FieldMapping;
-import jakarta.nosql.mapping.reflection.FieldType;
-import jakarta.nosql.mapping.reflection.FieldValue;
-import org.jnosql.artemis.document.DocumentFieldConverters.DocumentFieldConverterFactory;
-
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import static java.util.Objects.requireNonNull;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
-
-import static jakarta.nosql.mapping.reflection.FieldType.EMBEDDED;
-import static jakarta.nosql.mapping.reflection.FieldType.EMBEDDED_ENTITY;
-import static java.util.Objects.requireNonNull;
+import org.jnosql.artemis.Converters;
+import org.jnosql.artemis.document.DocumentFieldConverters.DocumentFieldConverterFactory;
+import org.jnosql.artemis.reflection.ClassMapping;
+import org.jnosql.artemis.reflection.ClassMappings;
+import org.jnosql.artemis.reflection.FieldMapping;
+import org.jnosql.artemis.reflection.FieldType;
+import org.jnosql.diana.api.document.Document;
+import org.jnosql.diana.api.document.DocumentEntity;
 
 /**
  * Template method to {@link DocumentEntityConverter}
@@ -102,7 +96,7 @@ public abstract class AbstractDocumentEntityConverter implements DocumentEntityC
         final Predicate<String> existField = k -> Collections.binarySearch(names, k) >= 0;
         final Predicate<String> isElementType = k -> {
             FieldType type = fieldsGroupByName.get(k).getType();
-            return EMBEDDED.equals(type) || EMBEDDED_ENTITY.equals(type);
+            return EMBEDDED.equals(type) || SUBENTITY.equals(type) || MAP.equals(type);
         };
 
         fieldsGroupByName.keySet().stream()

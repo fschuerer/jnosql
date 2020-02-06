@@ -14,25 +14,30 @@
  */
 package org.jnosql.artemis.document;
 
-import jakarta.nosql.mapping.AttributeConverter;
-import jakarta.nosql.mapping.reflection.FieldMapping;
-import org.jnosql.artemis.reflection.GenericFieldMapping;
-import jakarta.nosql.TypeReference;
-import jakarta.nosql.Value;
-import jakarta.nosql.document.Document;
-
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
-
-import static jakarta.nosql.mapping.reflection.FieldType.COLLECTION;
-import static jakarta.nosql.mapping.reflection.FieldType.EMBEDDED;
-import static jakarta.nosql.mapping.reflection.FieldType.EMBEDDED_ENTITY;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import org.jnosql.artemis.AttributeConverter;
+import org.jnosql.artemis.Embeddable;
+import org.jnosql.artemis.reflection.FieldMapping;
+import org.jnosql.artemis.reflection.GenericFieldMapping;
+import org.jnosql.diana.api.TypeReference;
+import org.jnosql.diana.api.Value;
+import org.jnosql.diana.api.document.Document;
 
 class DocumentFieldConverters {
 
@@ -42,14 +47,17 @@ class DocumentFieldConverters {
         private final DefaultConverter defaultConverter = new DefaultConverter();
         private final CollectionEmbeddableConverter embeddableConverter = new CollectionEmbeddableConverter();
         private final SubEntityConverter subEntityConverter = new SubEntityConverter();
+        private final MapEmbeddableConverter mapEmbeddableConverter = new MapEmbeddableConverter();
 
         DocumentFieldConverter get(FieldMapping field) {
             if (EMBEDDED.equals(field.getType())) {
                 return embeddedFieldConverter;
-            } else if (EMBEDDED_ENTITY.equals(field.getType())) {
+            } else if (SUBENTITY.equals(field.getType())) {
                 return subEntityConverter;
             } else if (isCollectionEmbeddable(field)) {
                 return embeddableConverter;
+            } else if (isMapEmbeddable(field)) {
+                return mapEmbeddableConverter;
             } else {
                 return defaultConverter;
             }
@@ -58,13 +66,21 @@ class DocumentFieldConverters {
         private boolean isCollectionEmbeddable(FieldMapping field) {
             return COLLECTION.equals(field.getType()) && ((GenericFieldMapping) field).isEmbeddable();
         }
+
+        private boolean isMapEmbeddable(FieldMapping field) {
+            if (MAP.equals(field.getType())) {
+                Class type = DocumentFieldConverters.getMapValueType(field);
+                return type.getAnnotation(Embeddable.class) != null;
+            }
+            return false;
+        }
     }
 
     private static class SubEntityConverter implements DocumentFieldConverter {
 
         @Override
         public <T> void convert(T instance, List<Document> documents, Optional<Document> document,
-                                FieldMapping field, AbstractDocumentEntityConverter converter) {
+                FieldMapping field, AbstractDocumentEntityConverter converter) {
 
             if (document.isPresent()) {
                 Document sudDocument = document.get();
@@ -92,10 +108,9 @@ class DocumentFieldConverters {
 
     private static class EmbeddedFieldConverter implements DocumentFieldConverter {
 
-
         @Override
         public <T> void convert(T instance, List<Document> documents, Optional<Document> document,
-                                FieldMapping field, AbstractDocumentEntityConverter converter) {
+                FieldMapping field, AbstractDocumentEntityConverter converter) {
 
             Field nativeField = field.getNativeField();
             Object subEntity = converter.toEntity(nativeField.getType(), documents);
@@ -108,7 +123,7 @@ class DocumentFieldConverters {
 
         @Override
         public <T> void convert(T instance, List<Document> documents, Optional<Document> document,
-                                FieldMapping field, AbstractDocumentEntityConverter converter) {
+                FieldMapping field, AbstractDocumentEntityConverter converter) {
             Value value = document.get().getValue();
 
             Optional<Class<? extends AttributeConverter>> optionalConverter = field.getConverter();
@@ -126,7 +141,7 @@ class DocumentFieldConverters {
 
         @Override
         public <T> void convert(T instance, List<Document> documents, Optional<Document> document,
-                                FieldMapping field, AbstractDocumentEntityConverter converter) {
+                FieldMapping field, AbstractDocumentEntityConverter converter) {
             document.ifPresent(convertDocument(instance, field, converter));
         }
 
@@ -144,5 +159,71 @@ class DocumentFieldConverters {
         }
     }
 
+    private static class MapEmbeddableConverter implements DocumentFieldConverter {
 
+        @Override
+        public <T> void convert(T instance, List<Document> documents, Optional<Document> document, FieldMapping field, AbstractDocumentEntityConverter converter) {
+            document.ifPresent(convertDocument(instance, field, converter));
+        }
+
+        private <T> Consumer<Document> convertDocument(T instance, final FieldMapping field, final AbstractDocumentEntityConverter converter) {
+            return (Document document) -> {
+                Map<String, Object> map = createMapInstance(field);
+
+                Object o = document.get();
+                if (o instanceof Document) {
+                    Document doc = (Document) o;
+                    documentToMapEntry(field, map, doc, converter);
+                } else if (o instanceof Collection) {
+                    Collection<Document> c = (Collection<Document>) o;
+                    c.forEach(doc -> documentToMapEntry(field, map, doc, converter));
+                } else if (o instanceof Map) {
+                    map.putAll((Map<String, Object>) o);
+                }
+
+                field.write(instance, map);
+            };
+        }
+
+        private static Map<String, Object> createMapInstance(FieldMapping field) {
+            try {
+                Field nativeField = field.getNativeField();
+                ParameterizedType pt = (ParameterizedType) nativeField.getGenericType();
+                Object mapInstance = null;
+                Class mapClass = (Class) pt.getRawType();
+                if (mapClass.isInterface() || Modifier.isAbstract(mapClass.getModifiers())) {
+                    if (SortedMap.class.isAssignableFrom(mapClass)) {
+                        mapInstance = new TreeMap<String, Object>();
+                    } else if (ConcurrentMap.class.isAssignableFrom(mapClass)) {
+                        mapInstance = new ConcurrentHashMap<String, Object>();
+                    } else {
+                        mapInstance = new HashMap<String, Object>();
+                    }
+                } else {
+                    mapInstance = mapClass.newInstance();
+                }
+                return (Map<String, Object>) mapInstance;
+            } catch (InstantiationException | IllegalAccessException ex) {
+                Logger.getLogger(DocumentFieldConverters.class.getName()).log(Level.SEVERE, null, ex);
+            }
+            return new HashMap<String, Object>();
+        }
+
+        private void documentToMapEntry(FieldMapping field, Map<String, Object> map, Document doc, AbstractDocumentEntityConverter converter) {
+            String mapKey = doc.getName();
+            Class mapValueType = getMapValueType(field);
+            List<Document> values = (List<Document>) doc.getValue().get();
+            Object mapValue = converter.toEntity(mapValueType, values);
+            map.put(mapKey, mapValue);
+        }
+    }
+
+    private static Class getMapValueType(FieldMapping field) {
+        if (MAP.equals(field.getType())) {
+            ParameterizedType pt = (ParameterizedType) field.getNativeField().getGenericType();
+            Class type = (Class) pt.getActualTypeArguments()[1];
+            return type;
+        }
+        return null;
+    }
 }

@@ -14,50 +14,48 @@
  */
 package org.jnosql.artemis.document;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Arrays;
+import static java.util.Arrays.asList;
+import java.util.Collections;
+import static java.util.Collections.singleton;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Stream;
+import javax.inject.Inject;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import org.jnosql.artemis.CDIExtension;
 import org.jnosql.artemis.model.Actor;
 import org.jnosql.artemis.model.Address;
 import org.jnosql.artemis.model.AppointmentBook;
+import org.jnosql.artemis.model.Attachment;
 import org.jnosql.artemis.model.Contact;
 import org.jnosql.artemis.model.ContactType;
 import org.jnosql.artemis.model.Director;
 import org.jnosql.artemis.model.Download;
 import org.jnosql.artemis.model.Job;
+import org.jnosql.artemis.model.Mail;
 import org.jnosql.artemis.model.Money;
 import org.jnosql.artemis.model.Movie;
 import org.jnosql.artemis.model.Person;
 import org.jnosql.artemis.model.Vendor;
 import org.jnosql.artemis.model.Worker;
 import org.jnosql.artemis.model.Zipcode;
-import jakarta.nosql.TypeReference;
-import jakarta.nosql.Value;
-import jakarta.nosql.document.Document;
-import jakarta.nosql.document.DocumentEntity;
+import org.jnosql.diana.api.TypeReference;
+import org.jnosql.diana.api.document.Document;
+import org.jnosql.diana.api.document.DocumentEntity;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-
-import javax.inject.Inject;
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Stream;
-
-import static java.util.Arrays.asList;
-import static java.util.Collections.singleton;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 @ExtendWith(CDIExtension.class)
 public class DefaultDocumentEntityConverterTest {
@@ -79,9 +77,9 @@ public class DefaultDocumentEntityConverterTest {
     public void init() {
 
         documents = new Document[]{Document.of("_id", 12L),
-                Document.of("age", 10), Document.of("name", "Otavio"), Document.of("phones", Arrays.asList("234", "2342"))
-                , Document.of("movieCharacter", Collections.singletonMap("JavaZone", "Jedi"))
-                , Document.of("movieRating", Collections.singletonMap("JavaZone", 10))};
+            Document.of("age", 10), Document.of("name", "Otavio"), Document.of("phones", Arrays.asList("234", "2342")),
+            Document.of("movieCharacter", Collections.singletonMap("JavaZone", "Jedi")),
+            Document.of("movieRating", Collections.singletonMap("JavaZone", 10))};
     }
 
     @Test
@@ -103,11 +101,9 @@ public class DefaultDocumentEntityConverterTest {
     @Test
     public void shouldConvertEntityFromDocumentEntity() {
 
-
         DocumentEntity entity = converter.toDocument(actor);
         assertEquals("Actor", entity.getName());
         assertEquals(6, entity.size());
-
 
         assertThat(entity.getDocuments(), containsInAnyOrder(documents));
     }
@@ -125,7 +121,6 @@ public class DefaultDocumentEntityConverterTest {
         assertEquals(Collections.singletonMap("JavaZone", "Jedi"), actor.getMovieCharacter());
         assertEquals(Collections.singletonMap("JavaZone", 10), actor.getMovieRating());
     }
-
 
     @Test
     public void shouldConvertColumnEntityToExistEntity() {
@@ -194,9 +189,7 @@ public class DefaultDocumentEntityConverterTest {
         assertEquals(movie.getYear(), getValue(documents.stream().filter(d -> "year".equals(d.getName())).findFirst()));
         assertEquals(movie.getActors(), getValue(documents.stream().filter(d -> "actors".equals(d.getName())).findFirst()));
 
-
     }
-
 
     @Test
     public void shouldConvertToEmbeddedClassWhenHasSubDocument() {
@@ -214,7 +207,6 @@ public class DefaultDocumentEntityConverterTest {
         assertEquals(director.getAge(), director1.getAge());
         assertEquals(director.getId(), director1.getId());
     }
-
 
     @Test
     public void shouldConvertToEmbeddedClassWhenHasSubDocument2() {
@@ -236,7 +228,6 @@ public class DefaultDocumentEntityConverterTest {
         assertEquals(director.getAge(), director1.getAge());
         assertEquals(director.getId(), director1.getId());
     }
-
 
     @Test
     public void shouldConvertToEmbeddedClassWhenHasSubDocument3() {
@@ -314,6 +305,105 @@ public class DefaultDocumentEntityConverterTest {
     }
 
     @Test
+    public void shouldConvertoMapEmbeddable() {
+        Mail mail = new Mail("ids");
+        Attachment a = new Attachment("content_type", 1, "digest", 1904, true);
+        mail.put("filename", a);
+
+        DocumentEntity entity = converter.toDocument(mail);
+
+        Document attachments = entity.find("attachments").get();
+        assertEquals("ids", mail.getId());
+        HashMap<String, Attachment> documents = (HashMap<String, Attachment>) attachments.get();
+        assertEquals(1, documents.size());
+        Attachment result = documents.get("filename");
+        assertEquals(1904L, result.getLength());
+    }
+
+    @Test
+    public void shouldConvertoMapEmbeddable2() {
+        Mail mail = new Mail("ids");
+        Attachment a1 = new Attachment("content_type", 1, "digest1", 1, true);
+        mail.put("filename1", a1);
+        Attachment a2 = new Attachment("content_type", 2, "digest2", 2, true);
+        mail.put("filename2", a2);
+
+        DocumentEntity entity = converter.toDocument(mail);
+
+        Document attachments = entity.find("attachments").get();
+        assertEquals("ids", mail.getId());
+        HashMap<String, Attachment> documents = (HashMap<String, Attachment>) attachments.get();
+        assertEquals(2, documents.size());
+        Attachment result1 = documents.get("filename1");
+        assertEquals(1, result1.getLength());
+        Attachment result2 = documents.get("filename2");
+        assertEquals(2, result2.getLength());
+    }
+
+    @Test
+    public void shouldConvertFromMapEmbeddable() {
+        DocumentEntity entity = DocumentEntity.of("Mail");
+        entity.add(Document.of("_id", "ids"));
+
+        List<Document> documents = new ArrayList<>();
+        documents.addAll(Arrays.asList(
+                Document.of("content_type", "content_type"),
+                Document.of("revpos", 1),
+                Document.of("digest", "digest"),
+                Document.of("length", 1904),
+                Document.of("stub", true)));
+        entity.add(Document.of("attachments", Document.of("filename", documents)));
+
+        Mail mail = converter.toEntity(entity);
+
+        assertEquals("ids", mail.getId());
+        Map<String, Attachment> attachments = mail.getAttachments();
+        assertEquals(1, attachments.size());
+        Attachment attachment = attachments.get("filename");
+        assertNotNull(attachment);
+        assertEquals(1904, attachment.getLength());
+    }
+
+    @Test
+    public void shouldConvertFromMapEmbeddable2() {
+        DocumentEntity entity = DocumentEntity.of("Mail");
+        entity.add(Document.of("_id", "ids"));
+
+        List<Document> documents1 = new ArrayList<>();
+        documents1.addAll(asList(
+                Document.of("content_type", "content_type"),
+                Document.of("revpos", 1),
+                Document.of("digest", "digest-1"),
+                Document.of("length", 1904),
+                Document.of("stub", true)));
+        List<Document> documents2 = new ArrayList<>();
+        documents2.addAll(asList(
+                Document.of("content_type", "content_type"),
+                Document.of("revpos", 1),
+                Document.of("digest", "digest-2"),
+                Document.of("length", 1904),
+                Document.of("stub", true)));
+        List<Document> attachmentsDocs = new ArrayList<>();
+        attachmentsDocs.addAll(Arrays.asList(
+                Document.of("filename1", documents1), 
+                Document.of("filename2", documents2)));
+        
+        entity.add(Document.of("attachments", attachmentsDocs));
+
+        Mail mail = converter.toEntity(entity);
+
+        assertEquals("ids", mail.getId());
+        Map<String, Attachment> attachments = mail.getAttachments();
+        assertEquals(2, attachments.size());
+        Attachment attachment = attachments.get("filename1");
+        assertNotNull(attachment);
+        assertEquals("digest-1", attachment.getDigest());
+        attachment = attachments.get("filename2");
+        assertNotNull(attachment);
+        assertEquals("digest-2", attachment.getDigest());
+    }
+
+    @Test
     public void shouldConvertFromListEmbeddable() {
         DocumentEntity entity = DocumentEntity.of("AppointmentBook");
         entity.add(Document.of("_id", "ids"));
@@ -337,7 +427,6 @@ public class DefaultDocumentEntityConverterTest {
         assertEquals("Ada", contacts.stream().map(Contact::getName).distinct().findFirst().get());
 
     }
-
 
     @Test
     public void shouldConvertSubEntity() {
@@ -381,10 +470,9 @@ public class DefaultDocumentEntityConverterTest {
         assertEquals("Salvador", address.getCity());
         assertEquals("Bahia", address.getState());
         assertEquals("12321", address.getZipcode().getZip());
-        assertEquals("1234",  address.getZipcode().getPlusFour());
+        assertEquals("1234", address.getZipcode().getPlusFour());
 
     }
-
 
     @Test
     public void shouldConvertAndDoNotUseUnmodifiableCollection() {
@@ -421,7 +509,6 @@ public class DefaultDocumentEntityConverterTest {
         download.setContents(contents);
 
         DocumentEntity entity = converter.toDocument(download);
-
 
         Assertions.assertEquals(1L, entity.find("_id").get().get());
         Assertions.assertEquals(contents, entity.find("contents").get().get());
